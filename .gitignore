@@ -1,0 +1,12 @@
+Build/*
+Intermediate/*
+Saved/*
+Binaries/*
+*.pdb
+MyProject.sdf
+MyProject.opensdf
+MyProject.sln
+MyProject.VC.opendb
+MyProject.v12.suo
+MyProject.v14.suo
+.vs/*
