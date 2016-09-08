@@ -10,13 +10,14 @@
 #include "Networking.h"
 #include "ShoeRecvThread.h"
 #include "ShoeState.h"
+#include <limits.h>
 
 #include "ShoeUDPClientLibrary.generated.h"
 
-// This is the pressure of the chambers when idle without any weight. 
+// This is the pressure of the chambers when idle without any weight.
 #define RESTING_PRESSURE 100000
 #define NUM_OF_CHAMBERS 7
-#define CM_PER_SHOE_UNITS 1.0
+#define SHOE_UNITS_PER_CM 100.0
 #define print(text) if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 1.5, FColor::White,text)
 
 //General Log
@@ -60,11 +61,11 @@ class UShoeUDPClientLibrary : public UObject
     
     int32 cmToShoeUnits(double cm);
     bool sendDataToFoot(EFootEnum foot, int32 data);
+
+	static UShoeUDPClientLibrary* Init();
     
 public:
 
-	UFUNCTION(BlueprintCallable, Category = "Shoe UDP Client")
-	static UShoeUDPClientLibrary* Init();
 	static UShoeUDPClientLibrary* Constructor();
 	UFUNCTION(BlueprintCallable, Category = "Shoe UDP Client")
 	static UShoeUDPClientLibrary* GetInstance();
@@ -82,7 +83,10 @@ public:
     // height equals the number of cm that you would like lower the chamber by
     // TODO: make this static
 	UFUNCTION(BlueprintCallable, Category = "Shoe UDP Client")
-	bool setDesiredState(EFootEnum foot, uint8 chamber, float height);
+	static bool setDesiredState(EFootEnum foot, uint8 chamber, float height);
+
+	UFUNCTION(BlueprintCallable, Category = "Shoe UDP Client")
+	static bool normalizeDesiredState();
     
 	static void shoeStateChanged();
 	UFUNCTION(BlueprintCallable, Category = "Shoe UDP Client")

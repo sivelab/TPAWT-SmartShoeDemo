@@ -14,12 +14,14 @@ DEFINE_LOG_CATEGORY(ShoeInput);
 
 UShoeUDPClientLibrary* UShoeUDPClientLibrary::instance = nullptr;
 //FIPv4Address UShoeUDPClientLibrary::LeftIP = FIPv4Address(131, 212, 41, 37);
+FIPv4Address UShoeUDPClientLibrary::LeftIP = FIPv4Address(131, 212, 41, 25);
 //FIPv4Address UShoeUDPClientLibrary::LeftIP = FIPv4Address(192, 168, 100, 107);
-FIPv4Address UShoeUDPClientLibrary::LeftIP = FIPv4Address(192, 168, 0, 8);
+//FIPv4Address UShoeUDPClientLibrary::LeftIP = FIPv4Address(192, 168, 0, 8);
 
 //FIPv4Address UShoeUDPClientLibrary::RightIP = FIPv4Address(131, 212, 41, 69);
+FIPv4Address UShoeUDPClientLibrary::RightIP = FIPv4Address(131, 212, 41, 5);
 //FIPv4Address UShoeUDPClientLibrary::RightIP = FIPv4Address(192, 168, 100, 107);
-FIPv4Address UShoeUDPClientLibrary::RightIP = FIPv4Address(192, 168, 0, 8);
+//FIPv4Address UShoeUDPClientLibrary::RightIP = FIPv4Address(192, 168, 0, 8);
 int32 UShoeUDPClientLibrary::Port = 2000;
 
 UShoeUDPClientLibrary::UShoeUDPClientLibrary(const FObjectInitializer &init) : UObject(init), shoeState(UShoeState::Init()) {
@@ -36,7 +38,7 @@ UShoeUDPClientLibrary* UShoeUDPClientLibrary::Constructor() {
 }
 
 UShoeUDPClientLibrary* UShoeUDPClientLibrary::Init() {
-	UE_LOG(ShoeLog, Log, TEXT("Initing... v2"));
+	UE_LOG(ShoeLog, Log, TEXT("Initing... v3"));
 
 	if (!instance) {
 		instance = Constructor();
@@ -44,6 +46,14 @@ UShoeUDPClientLibrary* UShoeUDPClientLibrary::Init() {
 
 	instance->LeftEndpoint = FIPv4Endpoint(UShoeUDPClientLibrary::LeftIP, Port);
 	instance->RightEndpoint = FIPv4Endpoint(UShoeUDPClientLibrary::RightIP, Port);
+
+	instance->recvThread = nullptr;
+
+	instance->shoeState = UShoeState::Init();
+	instance->shoeState->setUpdateCallback(UShoeUDPClientLibrary::shoeStateChanged);
+
+	instance->SocketRight = nullptr;
+	instance->SocketLeft = nullptr;
 
 	/*instance->LeftInAir = false;
 	instance->RightInAir = false;*/
@@ -59,7 +69,7 @@ UShoeUDPClientLibrary* UShoeUDPClientLibrary::GetInstance() {
 }
 
 bool UShoeUDPClientLibrary::connect() {
-	//UE_LOG(ShoeLog, Log, TEXT("Connecting..."));
+	UE_LOG(ShoeLog, Log, TEXT("Connecting..."));
 	LeftConnected = SocketLeft && SocketLeft->GetConnectionState() == ESocketConnectionState::SCS_Connected;
 	RightConnected = SocketRight && SocketRight->GetConnectionState() == ESocketConnectionState::SCS_Connected;
 
@@ -121,14 +131,49 @@ bool UShoeUDPClientLibrary::sendDataToFoot(EFootEnum foot, int32 data) {
 }
 
 bool UShoeUDPClientLibrary::setDesiredState(EFootEnum foot, uint8 chamber, float height) {
+	if (!instance) {
+		UShoeUDPClientLibrary::Init();
+	}
+
 	int offset = 0;
 	if (foot == EFootEnum::F_Right) {
 		offset = NUM_OF_CHAMBERS;
 	}
-	desiredHeights[offset + chamber] = cmToShoeUnits(height);
+	instance->desiredHeights[offset + chamber] = instance->cmToShoeUnits(height);
 	return true;
 }
 
+// Makes all the heights in the desired state less than or equal to 0
+// This is needed before the shoe react properly
+bool UShoeUDPClientLibrary::normalizeDesiredState() {
+	if (!instance) {
+		UShoeUDPClientLibrary::Init();
+	}
+	int maxHeight = INT_MIN;
+
+	for (int i = 0; i < NUM_OF_CHAMBERS*2; i++) {
+		if (instance->desiredHeights[i] > maxHeight) {
+			maxHeight = instance->desiredHeights[i];
+		}
+	}
+
+	for (int i = 0; i < NUM_OF_CHAMBERS * 2; i++) {
+		instance->desiredHeights[i] -= maxHeight;
+	}
+
+	UE_LOG(ShoeOutput, Log, TEXT("Time: %f"), FPlatformTime::Seconds());
+	for (int i = 0; i < NUM_OF_CHAMBERS; i++) {
+		UE_LOG(ShoeOutput, Log, TEXT("Desired Height Left %d: %d"), i, instance->desiredHeights[i]);
+	}
+	for (int i = 0; i < NUM_OF_CHAMBERS; i++) {
+		UE_LOG(ShoeOutput, Log, TEXT("Desired Height Right %d: %d"), i, instance->desiredHeights[i+NUM_OF_CHAMBERS]);
+	}
+
+	return true;
+}
+
+// This function is for calibration.
+// It should be called when the shoe is at it's highest.
 bool UShoeUDPClientLibrary::setCurrentStateToZero(EFootEnum foot) {
     int offset = 0;
     if (foot == EFootEnum::F_Right) {
@@ -180,7 +225,7 @@ void UShoeUDPClientLibrary::shoeStateChanged() {
 	else {
 		for (int i = 0; i < NUM_OF_CHAMBERS; i++) {
 			bool desiredState = false;
-			if (instance->shoeState->getChamberHeight(EFootEnum::F_Left, i) > instance->desiredHeights[i]) {
+			if (instance->shoeState->getChamberHeight(EFootEnum::F_Left, i) > instance->desiredHeights[i] + instance->zeroHeights[i]) {
 				desiredState = true;
 			}
 
@@ -213,7 +258,7 @@ void UShoeUDPClientLibrary::shoeStateChanged() {
 	else {
 		for (int i = 0; i < NUM_OF_CHAMBERS; i++) {
 			bool desiredState = false;
-			if (instance->shoeState->getChamberHeight(EFootEnum::F_Right, i) > instance->desiredHeights[i+NUM_OF_CHAMBERS]) { // plus NUM_OF_CHAMBERS because this is the right shoe
+			if (instance->shoeState->getChamberHeight(EFootEnum::F_Right, i) > instance->desiredHeights[i+NUM_OF_CHAMBERS] + instance->zeroHeights[i+NUM_OF_CHAMBERS]) { // plus NUM_OF_CHAMBERS because this is the right shoe
 				desiredState = true;
 			}
 
@@ -230,7 +275,7 @@ void UShoeUDPClientLibrary::shoeStateChanged() {
 			}
 		}
 	}
-	instance->ShoeStateUpdated();
+	//instance->ShoeStateUpdated();
 }
 
 void UShoeUDPClientLibrary::ShoeStateUpdated_Implementation() {
@@ -246,5 +291,5 @@ void UShoeUDPClientLibrary::setIsRightInAir(bool isInAir) {
 }
 
 int32 UShoeUDPClientLibrary::cmToShoeUnits(double cm) {
-    return (int32)(cm*CM_PER_SHOE_UNITS);
+    return (int32)(cm*SHOE_UNITS_PER_CM);
 }

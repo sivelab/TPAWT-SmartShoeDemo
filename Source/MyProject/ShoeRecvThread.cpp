@@ -19,8 +19,8 @@ FShoeRecvThread::~FShoeRecvThread()
 void FShoeRecvThread::setupNetwork() {
 	UE_LOG(LogClass, Warning, TEXT("Connecting..."));
 	//const FIPv4Address IP(192, 168, 100, 107); // Local IP
-	//const FIPv4Address IP(131, 212, 41, 3); // Local IP
-    const FIPv4Address IP(192, 168, 0, 8);
+	const FIPv4Address IP(131, 212, 41, 3); // Local IP
+    //const FIPv4Address IP(192, 168, 0, 8);
 	const int32 Port = 2050;
 	TSharedRef<FInternetAddr> Addr = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->CreateInternetAddr();
 	Addr->SetIp(IP.Value);
